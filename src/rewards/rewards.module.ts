@@ -7,12 +7,13 @@ import { EventConsumerService } from '../events/event-consumer.service';
 import { PointsEntry } from './entities/points-entry.entity';
 import { Redemption } from './entities/redemption.entity';
 import { RewardsClientsService } from './rewards-clients.service';
+import { RewardsCatalogController } from './rewards-catalog.controller';
 import { RewardsController } from './rewards.controller';
 import { RewardsService } from './rewards.service';
 
 @Module({
   imports: [ConfigModule, JwtModule.register({}), TypeOrmModule.forFeature([PointsEntry, Redemption])],
-  controllers: [RewardsController],
+  controllers: [RewardsCatalogController, RewardsController],
   providers: [RewardsService, RewardsClientsService, EventConsumerService, JwtAuthGuard],
 })
 export class RewardsModule {}

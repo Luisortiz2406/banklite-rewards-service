@@ -147,3 +147,12 @@ export function levelFor(earned: number) {
   });
   return { ...POINT_LEVELS[index], index, next: POINT_LEVELS[index + 1] ?? null };
 }
+
+/** Valor de los puntos, cuántos se ganan y niveles (GET /rewards/catalog, público). */
+export function rewardsCatalog() {
+  return {
+    pointValue: POINT_VALUE,
+    pointsPer: POINTS_PER,
+    levels: POINT_LEVELS.map(({ name, min, multiplier }) => ({ name, min, multiplier })),
+  };
+}
