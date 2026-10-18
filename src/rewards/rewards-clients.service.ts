@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { HTTP_TIMEOUTS, requestService } from '../common/http/internal-http';
 
 /**
  * Falla al entregar un canje.
@@ -38,17 +39,14 @@ export class RewardsClientsService {
     return this.config.get<string>(key, fallback).replace(/\/+$/, '');
   }
 
+  // Lecturas tolerantes (retos y datos de apoyo): si el otro servicio falla, null.
   private async userGet<T>(base: string, path: string, token: string): Promise<T | null> {
-    try {
-      const response = await fetch(`${base}${path}`, {
-        headers: { Authorization: `Bearer ${token}` },
-        signal: AbortSignal.timeout(8000),
-      });
-      if (!response.ok) return null;
-      return (await response.json()) as T;
-    } catch {
-      return null;
-    }
+    const response = await requestService<T>(`${base}${path}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      timeoutMs: HTTP_TIMEOUTS.read,
+      retry: true,
+    });
+    return response?.ok ? response.body : null;
   }
 
   /** Cuenta activa del cliente donde llega la plata de un canje. */
@@ -140,22 +138,16 @@ export class RewardsClientsService {
   private async internalPost<T>(base: string, path: string, body: unknown): Promise<T> {
     const key = this.config.get<string>('INTERNAL_API_KEY');
     if (!key) throw new DeliveryError('INTERNAL_API_KEY no está configurada en Rewards Service.', false);
-    let response: Response;
-    try {
-      response = await fetch(`${base}${path}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-internal-key': key },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(15000),
-      });
-    } catch {
-      throw new DeliveryError('No se pudo completar el canje en este momento.', false);
-    }
-    const payload = await response.json().catch(() => ({}));
-    if (response.ok) return payload as T;
-    const message = Array.isArray(payload?.message)
-      ? payload.message.join(', ')
-      : payload?.message || 'No se pudo completar el canje.';
-    throw new DeliveryError(String(message).slice(0, 200), response.status >= 400 && response.status < 500);
+    const response = await requestService<T>(`${base}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-internal-key': key },
+      body: JSON.stringify(body),
+      timeoutMs: HTTP_TIMEOUTS.slow,
+    });
+    if (!response) throw new DeliveryError('No se pudo completar el canje en este momento.', false);
+    if (response.ok) return response.body;
+    // Misma regla de internal-http: 4xx = rechazo definitivo; 5xx o 401 (clave interna) = incierto
+    const definitive = response.status >= 400 && response.status < 500 && response.status !== 401;
+    throw new DeliveryError((response.message || 'No se pudo completar el canje.').slice(0, 200), definitive);
   }
 }
