@@ -29,10 +29,38 @@ export interface Reward {
 }
 
 export const POINT_REWARDS: Reward[] = [
-  { id: 'cash5', kind: 'cash', title: '$5.000 a tu cuenta', text: 'Se suman a tu saldo al instante', points: 500, value: 5000 },
-  { id: 'cash20', kind: 'cash', title: '$20.000 a tu cuenta', text: 'Se suman a tu saldo al instante', points: 2000, value: 20000 },
-  { id: 'cash50', kind: 'cash', title: '$50.000 a tu cuenta', text: 'Se suman a tu saldo al instante', points: 5000, value: 50000 },
-  { id: 'recharge10', kind: 'recharge', title: 'Recarga de $10.000', text: 'A tu celular verificado', points: 1000, value: 10000 },
+  {
+    id: 'cash5',
+    kind: 'cash',
+    title: '$5.000 a tu cuenta',
+    text: 'Se suman a tu saldo al instante',
+    points: 500,
+    value: 5000,
+  },
+  {
+    id: 'cash20',
+    kind: 'cash',
+    title: '$20.000 a tu cuenta',
+    text: 'Se suman a tu saldo al instante',
+    points: 2000,
+    value: 20000,
+  },
+  {
+    id: 'cash50',
+    kind: 'cash',
+    title: '$50.000 a tu cuenta',
+    text: 'Se suman a tu saldo al instante',
+    points: 5000,
+    value: 50000,
+  },
+  {
+    id: 'recharge10',
+    kind: 'recharge',
+    title: 'Recarga de $10.000',
+    text: 'A tu celular verificado',
+    points: 1000,
+    value: 10000,
+  },
   { id: 'coffee', kind: 'coupon', title: 'Café gratis', text: 'En Café La Esquina', points: 600 },
   { id: 'shop20', kind: 'coupon', title: '20% en compras online', text: 'Hasta $40.000 de descuento', points: 1200 },
   { id: 'cinema', kind: 'coupon', title: 'Cine 2x1', text: 'Dos entradas por el precio de una', points: 1500 },
@@ -62,16 +90,60 @@ export interface Badge {
 
 export const POINT_BADGES: Badge[] = [
   { id: 'welcome', title: 'Bienvenida', text: 'Por unirte a Puntos Banklite', points: 250, icon: '★' },
-  { id: 'first-key', title: 'Tu primera llave', text: 'Registra una llave Bre-B', points: 150, icon: '@', link: 'llaves.html' },
-  { id: 'first-qr', title: 'Paga con QR', text: 'Haz tu primer pago con QR', points: 150, icon: '▦', link: 'qr.html?tab=pagar' },
-  { id: 'first-bill', title: 'Cero filas', text: 'Paga tu primera factura', points: 100, icon: '◫', link: 'pagos.html' },
-  { id: 'first-purchase', title: 'Estrena tu tarjeta', text: 'Inscribe una suscripción o compra con tu tarjeta', points: 50, icon: '▭', link: 'dashboard.html#tarjetas' },
-  { id: 'first-pocket', title: 'Ahorrador', text: 'Aparta plata en un bolsillo', points: 100, icon: '$', link: 'inversiones.html' },
-  { id: 'first-cdt', title: 'Inversionista', text: 'Abre tu primer CDT', points: 300, icon: '↗', link: 'inversiones.html' },
+  {
+    id: 'first-key',
+    title: 'Tu primera llave',
+    text: 'Registra una llave Bre-B',
+    points: 150,
+    icon: '@',
+    link: 'llaves.html',
+  },
+  {
+    id: 'first-qr',
+    title: 'Paga con QR',
+    text: 'Haz tu primer pago con QR',
+    points: 150,
+    icon: '▦',
+    link: 'qr.html?tab=pagar',
+  },
+  {
+    id: 'first-bill',
+    title: 'Cero filas',
+    text: 'Paga tu primera factura',
+    points: 100,
+    icon: '◫',
+    link: 'pagos.html',
+  },
+  {
+    id: 'first-purchase',
+    title: 'Estrena tu tarjeta',
+    text: 'Inscribe una suscripción o compra con tu tarjeta',
+    points: 50,
+    icon: '▭',
+    link: 'dashboard.html#tarjetas',
+  },
+  {
+    id: 'first-pocket',
+    title: 'Ahorrador',
+    text: 'Aparta plata en un bolsillo',
+    points: 100,
+    icon: '$',
+    link: 'inversiones.html',
+  },
+  {
+    id: 'first-cdt',
+    title: 'Inversionista',
+    text: 'Abre tu primer CDT',
+    points: 300,
+    icon: '↗',
+    link: 'inversiones.html',
+  },
 ];
 
 export function levelFor(earned: number) {
   let index = 0;
-  POINT_LEVELS.forEach((level, i) => { if (earned >= level.min) index = i; });
+  POINT_LEVELS.forEach((level, i) => {
+    if (earned >= level.min) index = i;
+  });
   return { ...POINT_LEVELS[index], index, next: POINT_LEVELS[index + 1] ?? null };
 }

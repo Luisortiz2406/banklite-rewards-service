@@ -10,12 +10,20 @@ import { ConfigService } from '@nestjs/config';
  *   (ledger y payment-service nunca pagan dos veces con la misma clave).
  */
 export class DeliveryError extends Error {
-  constructor(message: string, readonly definitive: boolean) {
+  constructor(
+    message: string,
+    readonly definitive: boolean,
+  ) {
     super(message);
   }
 }
 
-interface AccountView { id: string; accountNumber: string; accountType: string; status: string }
+interface AccountView {
+  id: string;
+  accountNumber: string;
+  accountType: string;
+  status: string;
+}
 
 /**
  * Llamadas a otros servicios: con el token del cliente (sus cuentas, sus datos
@@ -45,52 +53,88 @@ export class RewardsClientsService {
 
   /** Cuenta activa del cliente donde llega la plata de un canje. */
   async receivingAccount(token: string): Promise<AccountView | null> {
-    const accounts = await this.userGet<AccountView[]>(this.url('ACCOUNT_SERVICE_URL', 'http://localhost:3002'), '/accounts', token);
+    const accounts = await this.userGet<AccountView[]>(
+      this.url('ACCOUNT_SERVICE_URL', 'http://localhost:3002'),
+      '/accounts',
+      token,
+    );
     return (accounts ?? []).find((a) => a.status === 'active' && a.accountType !== 'merchant') ?? null;
   }
 
   /** Celular verificado del cliente (KYC), a 10 dígitos. */
   async verifiedPhone(idUser: string, token: string): Promise<string | null> {
-    const kyc = await this.userGet<{ telefono?: string | null }>(this.url('KYC_SERVICE_URL', 'http://localhost:3003'), `/kyc/${idUser}`, token);
-    const digits = String(kyc?.telefono ?? '').replace(/\D/g, '').slice(-10);
+    const kyc = await this.userGet<{ telefono?: string | null }>(
+      this.url('KYC_SERVICE_URL', 'http://localhost:3003'),
+      `/kyc/${idUser}`,
+      token,
+    );
+    const digits = String(kyc?.telefono ?? '')
+      .replace(/\D/g, '')
+      .slice(-10);
     return /^3\d{9}$/.test(digits) ? digits : null;
   }
 
   /** ¿El cliente ya registró alguna llave Bre-B? (reto "Tu primera llave"). */
   async hasBrebKey(token: string): Promise<boolean> {
-    const data = await this.userGet<{ keys?: unknown[] }>(this.url('ACCOUNT_SERVICE_URL', 'http://localhost:3002'), '/accounts/keys', token);
+    const data = await this.userGet<{ keys?: unknown[] }>(
+      this.url('ACCOUNT_SERVICE_URL', 'http://localhost:3002'),
+      '/accounts/keys',
+      token,
+    );
     return (data?.keys?.length ?? 0) > 0;
   }
 
   /** Hitos de ahorro del cliente (savings-service): retos "Ahorrador" e "Inversionista". */
   async savingsMilestones(token: string): Promise<{ hasPocket: boolean; hasCdt: boolean }> {
     const data = await this.userGet<{ milestones?: { hasPocket: boolean; hasCdt: boolean } }>(
-      this.url('SAVINGS_SERVICE_URL', 'http://localhost:3013'), '/savings', token,
+      this.url('SAVINGS_SERVICE_URL', 'http://localhost:3013'),
+      '/savings',
+      token,
     );
     return data?.milestones ?? { hasPocket: false, hasCdt: false };
   }
 
   /** Plata a la cuenta del cliente desde la cuenta "Recompensas" del ledger. */
-  async creditCash(params: { accountId: string; idUser: string; amount: number; idempotencyKey: string; description: string }) {
-    return this.internalPost<{ id: string }>(this.url('LEDGER_SERVICE_URL', 'http://localhost:3006'), '/ledger/internal/rewards', {
-      target: 'account',
-      accountId: params.accountId,
-      beneficiaryUserId: params.idUser,
-      amount: params.amount,
-      idempotencyKey: params.idempotencyKey,
-      description: params.description,
-    });
+  async creditCash(params: {
+    accountId: string;
+    idUser: string;
+    amount: number;
+    idempotencyKey: string;
+    description: string;
+  }) {
+    return this.internalPost<{ id: string }>(
+      this.url('LEDGER_SERVICE_URL', 'http://localhost:3006'),
+      '/ledger/internal/rewards',
+      {
+        target: 'account',
+        accountId: params.accountId,
+        beneficiaryUserId: params.idUser,
+        amount: params.amount,
+        idempotencyKey: params.idempotencyKey,
+        description: params.description,
+      },
+    );
   }
 
   /** Recarga pagada por el banco al operador (payment-service la registra y la paga desde "Recompensas"). */
-  async rewardTopup(params: { idUser: string; operatorCode: string; phone: string; amount: number; idempotencyKey: string }) {
-    return this.internalPost<{ ledgerTransactionId: string | null }>(this.url('PAYMENT_SERVICE_URL', 'http://localhost:3011'), '/internal/payments/reward-topups', {
-      beneficiaryUserId: params.idUser,
-      billerCode: params.operatorCode,
-      phone: params.phone,
-      amount: params.amount,
-      idempotencyKey: params.idempotencyKey,
-    });
+  async rewardTopup(params: {
+    idUser: string;
+    operatorCode: string;
+    phone: string;
+    amount: number;
+    idempotencyKey: string;
+  }) {
+    return this.internalPost<{ ledgerTransactionId: string | null }>(
+      this.url('PAYMENT_SERVICE_URL', 'http://localhost:3011'),
+      '/internal/payments/reward-topups',
+      {
+        beneficiaryUserId: params.idUser,
+        billerCode: params.operatorCode,
+        phone: params.phone,
+        amount: params.amount,
+        idempotencyKey: params.idempotencyKey,
+      },
+    );
   }
 
   private async internalPost<T>(base: string, path: string, body: unknown): Promise<T> {
@@ -109,7 +153,9 @@ export class RewardsClientsService {
     }
     const payload = await response.json().catch(() => ({}));
     if (response.ok) return payload as T;
-    const message = Array.isArray(payload?.message) ? payload.message.join(', ') : payload?.message || 'No se pudo completar el canje.';
+    const message = Array.isArray(payload?.message)
+      ? payload.message.join(', ')
+      : payload?.message || 'No se pudo completar el canje.';
     throw new DeliveryError(String(message).slice(0, 200), response.status >= 400 && response.status < 500);
   }
 }

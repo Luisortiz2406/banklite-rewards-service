@@ -71,8 +71,12 @@ export function handleFailure(
   }
 
   if (target.endsWith('.dlq')) {
-    logger.error(`Evento '${originalRoutingKey(msg)}' enviado a ${target} tras ${attempt} intento(s): ${error.message}`);
+    logger.error(
+      `Evento '${originalRoutingKey(msg)}' enviado a ${target} tras ${attempt} intento(s): ${error.message}`,
+    );
   } else {
-    logger.warn(`Evento '${originalRoutingKey(msg)}' falló (intento ${attempt}/${MAX_RETRIES}); se reintenta en ${RETRY_DELAY_MS / 1000}s: ${error.message}`);
+    logger.warn(
+      `Evento '${originalRoutingKey(msg)}' falló (intento ${attempt}/${MAX_RETRIES}); se reintenta en ${RETRY_DELAY_MS / 1000}s: ${error.message}`,
+    );
   }
 }

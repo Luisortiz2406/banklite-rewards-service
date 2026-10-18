@@ -63,9 +63,18 @@ export class RewardsService {
     const description = String(event.description ?? '');
 
     if (event.type === 'reversal' && event.reversedTransactionId) {
-      const earned = await this.entries.findOne({ where: { sourceKey: `earn:${event.reversedTransactionId}`, idUser: event.idUser } });
+      const earned = await this.entries.findOne({
+        where: { sourceKey: `earn:${event.reversedTransactionId}`, idUser: event.idUser },
+      });
       if (earned && earned.points > 0) {
-        await this.addEntry(event.idUser, -earned.points, 'reversal', 'Reverso de compra', earned.title, `reversal:${event.reversedTransactionId}`);
+        await this.addEntry(
+          event.idUser,
+          -earned.points,
+          'reversal',
+          'Reverso de compra',
+          earned.title,
+          `reversal:${event.reversedTransactionId}`,
+        );
       }
       return;
     }
@@ -80,16 +89,30 @@ export class RewardsService {
     if (amount >= POINTS_PER) {
       const level = levelFor(await this.earnedOf(event.idUser));
       const points = Math.floor((amount / POINTS_PER) * level.multiplier);
-      const title = isQR || description.startsWith('Pago QR') ? 'Pago con QR'
-        : / · Ref\. \d+$/.test(description) ? 'Pago de factura'
-          : description.startsWith('Suscripción') ? 'Suscripción'
-            : event.type === 'debit' ? 'Compra con tarjeta' : 'Pago';
-      await this.addEntry(event.idUser, points, 'earn', title, description.slice(0, 160), `earn:${event.transactionId}`);
+      const title =
+        isQR || description.startsWith('Pago QR')
+          ? 'Pago con QR'
+          : / · Ref\. \d+$/.test(description)
+            ? 'Pago de factura'
+            : description.startsWith('Suscripción')
+              ? 'Suscripción'
+              : event.type === 'debit'
+                ? 'Compra con tarjeta'
+                : 'Pago';
+      await this.addEntry(
+        event.idUser,
+        points,
+        'earn',
+        title,
+        description.slice(0, 160),
+        `earn:${event.transactionId}`,
+      );
     }
 
     // Retos que se cumplen con un movimiento.
     if (description.startsWith('Pago QR')) await this.awardBadge(event.idUser, 'first-qr');
-    if (event.type === 'payment' && / · Ref\. \d+$/.test(description)) await this.awardBadge(event.idUser, 'first-bill');
+    if (event.type === 'payment' && / · Ref\. \d+$/.test(description))
+      await this.awardBadge(event.idUser, 'first-bill');
     if (description.startsWith('Suscripción') || (event.type === 'debit' && !isExternalTransfer)) {
       await this.awardBadge(event.idUser, 'first-purchase');
     }
@@ -143,7 +166,14 @@ export class RewardsService {
         text: POINT_REWARDS.find((r) => r.id === c.rewardId)?.text ?? '',
         expiresAt: c.expiresAt,
       })),
-      history: history.map((h) => ({ id: h.id, points: h.points, kind: h.kind, title: h.title, detail: h.detail, createdAt: h.createdAt })),
+      history: history.map((h) => ({
+        id: h.id,
+        points: h.points,
+        kind: h.kind,
+        title: h.title,
+        detail: h.detail,
+        createdAt: h.createdAt,
+      })),
     };
   }
 
@@ -171,7 +201,8 @@ export class RewardsService {
         throw new ConflictException('La clave de idempotencia ya se usó para otro canje.');
       }
       if (redemption.status === 'completed') return this.publicRedemption(redemption);
-      if (redemption.status === 'failed') throw new ConflictException(redemption.failureReason || 'Ese canje no se pudo completar.');
+      if (redemption.status === 'failed')
+        throw new ConflictException(redemption.failureReason || 'Ese canje no se pudo completar.');
       // pending: se reintenta la entrega (las llamadas son idempotentes).
     } else {
       // Datos que se validan antes de reservar puntos.
@@ -179,15 +210,28 @@ export class RewardsService {
       if (reward.kind === 'recharge' && !phone) {
         throw new BadRequestException('Necesitas un celular verificado en Banklite para canjear recargas.');
       }
-      redemption = await this.reserve(idUser, reward.id, reward.kind, reward.points, idempotencyKey, operatorCode ?? null, phone);
+      redemption = await this.reserve(
+        idUser,
+        reward.id,
+        reward.kind,
+        reward.points,
+        idempotencyKey,
+        operatorCode ?? null,
+        phone,
+      );
     }
 
     return this.deliver(redemption, token);
   }
 
   private async reserve(
-    idUser: string, rewardId: string, kind: Redemption['kind'], points: number,
-    idempotencyKey: string, operatorCode: string | null, phone: string | null,
+    idUser: string,
+    rewardId: string,
+    kind: Redemption['kind'],
+    points: number,
+    idempotencyKey: string,
+    operatorCode: string | null,
+    phone: string | null,
   ): Promise<Redemption> {
     try {
       return await this.dataSource.transaction(async (manager) => {
@@ -195,16 +239,37 @@ export class RewardsService {
         await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [idUser]);
         const balance = await this.balanceOf(idUser, manager);
         if (balance < points) {
-          throw new BadRequestException(`No tienes puntos suficientes: te faltan ${(points - balance).toLocaleString('es-CO')}.`);
+          throw new BadRequestException(
+            `No tienes puntos suficientes: te faltan ${(points - balance).toLocaleString('es-CO')}.`,
+          );
         }
-        const redemption = await manager.save(manager.create(Redemption, {
-          idUser, rewardId, kind, points, idempotencyKey, status: 'pending', operatorCode, phone,
-          couponCode: null, expiresAt: null, ledgerTransactionId: null, failureReason: null,
-        }));
+        const redemption = await manager.save(
+          manager.create(Redemption, {
+            idUser,
+            rewardId,
+            kind,
+            points,
+            idempotencyKey,
+            status: 'pending',
+            operatorCode,
+            phone,
+            couponCode: null,
+            expiresAt: null,
+            ledgerTransactionId: null,
+            failureReason: null,
+          }),
+        );
         const reward = POINT_REWARDS.find((r) => r.id === rewardId);
-        await manager.save(manager.create(PointsEntry, {
-          idUser, points: -points, kind: 'redeem', title: 'Canje', detail: reward?.title ?? rewardId, sourceKey: `redeem:${redemption.id}`,
-        }));
+        await manager.save(
+          manager.create(PointsEntry, {
+            idUser,
+            points: -points,
+            kind: 'redeem',
+            title: 'Canje',
+            detail: reward?.title ?? rewardId,
+            sourceKey: `redeem:${redemption.id}`,
+          }),
+        );
         return redemption;
       });
     } catch (error) {
@@ -256,7 +321,9 @@ export class RewardsService {
       if (error instanceof DeliveryError) {
         // Incierto: queda pendiente (puntos reservados) y se reintenta después.
         this.logger.warn(`Canje ${redemption.id} pendiente: ${error.message}`);
-        throw new ServiceUnavailableException('Estamos confirmando tu canje. Revisa en unos segundos; si no se completa, te devolvemos los puntos.');
+        throw new ServiceUnavailableException(
+          'Estamos confirmando tu canje. Revisa en unos segundos; si no se completa, te devolvemos los puntos.',
+        );
       }
       if (error instanceof HttpException) throw error;
       throw error;
@@ -266,12 +333,22 @@ export class RewardsService {
   /** Compensación: devuelve los puntos reservados y marca el canje como fallido. */
   private async refund(redemption: Redemption, reason: string) {
     await this.dataSource.transaction(async (manager) => {
-      const claimed = await manager.update(Redemption, { id: redemption.id, status: 'pending' }, { status: 'failed', failureReason: reason.slice(0, 200) });
+      const claimed = await manager.update(
+        Redemption,
+        { id: redemption.id, status: 'pending' },
+        { status: 'failed', failureReason: reason.slice(0, 200) },
+      );
       if (!claimed.affected) return; // ya se resolvió por otra vía
-      await manager.save(manager.create(PointsEntry, {
-        idUser: redemption.idUser, points: redemption.points, kind: 'refund', title: 'Devolución de canje',
-        detail: reason.slice(0, 160), sourceKey: `refund:${redemption.id}`,
-      }));
+      await manager.save(
+        manager.create(PointsEntry, {
+          idUser: redemption.idUser,
+          points: redemption.points,
+          kind: 'refund',
+          title: 'Devolución de canje',
+          detail: reason.slice(0, 160),
+          sourceKey: `refund:${redemption.id}`,
+        }),
+      );
     });
     redemption.status = 'failed';
   }
@@ -300,9 +377,17 @@ export class RewardsService {
   }
 
   /** Inserta un asiento; si su sourceKey ya existe (reentrega), no hace nada. */
-  private async addEntry(idUser: string, points: number, kind: PointsKind, title: string, detail: string, sourceKey: string) {
+  private async addEntry(
+    idUser: string,
+    points: number,
+    kind: PointsKind,
+    title: string,
+    detail: string,
+    sourceKey: string,
+  ) {
     if (!points) return;
-    await this.entries.createQueryBuilder()
+    await this.entries
+      .createQueryBuilder()
       .insert()
       .into(PointsEntry)
       .values({ idUser, points, kind, title, detail, sourceKey })
@@ -312,13 +397,18 @@ export class RewardsService {
 
   private async balanceOf(idUser: string, manager?: EntityManager): Promise<number> {
     const repo = manager ? manager.getRepository(PointsEntry) : this.entries;
-    const row = await repo.createQueryBuilder('e').select('COALESCE(SUM(e.points), 0)', 'total').where('e.id_user = :idUser', { idUser }).getRawOne();
+    const row = await repo
+      .createQueryBuilder('e')
+      .select('COALESCE(SUM(e.points), 0)', 'total')
+      .where('e.id_user = :idUser', { idUser })
+      .getRawOne();
     return Number(row?.total ?? 0);
   }
 
   // El nivel depende de lo ganado (compras y retos): canjear no te baja de nivel.
   private async earnedOf(idUser: string): Promise<number> {
-    const row = await this.entries.createQueryBuilder('e')
+    const row = await this.entries
+      .createQueryBuilder('e')
       .select('COALESCE(SUM(e.points), 0)', 'total')
       .where('e.id_user = :idUser', { idUser })
       .andWhere("e.kind IN ('earn', 'badge', 'reversal')")

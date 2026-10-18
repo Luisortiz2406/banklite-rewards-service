@@ -107,7 +107,9 @@ export class EventConsumerService implements OnModuleInit, OnModuleDestroy {
       // Ledger publica un evento por titular afectado: la misma transactionId puede
       // llegar dos veces (emisor y receptor), cada una con una cuenta y una dirección
       // distintas, así que no es una reentrega.
-      this.logger.log(`transaction.completed procesado (transactionId=${data.transactionId}, direction=${data.direction})`);
+      this.logger.log(
+        `transaction.completed procesado (transactionId=${data.transactionId}, direction=${data.direction})`,
+      );
       channel.ack(msg);
     } catch (err) {
       handleFailure(channel, queue, msg, err as Error, this.logger);
