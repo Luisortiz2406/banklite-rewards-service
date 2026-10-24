@@ -91,8 +91,11 @@ docker build -t banklite-rewards-service .
 docker run --env-file .env -p 3012:3012 banklite-rewards-service
 ```
 
-El sistema completo (los 12 servicios, Postgres, RabbitMQ y el gateway) se levanta
-desde el repositorio principal con `docker compose up -d --build`.
+El sistema completo (los 12 servicios, Postgres, RabbitMQ, el gateway y el frontend) se
+levanta con el `docker-compose.yml` del repositorio de integración de BankLite:
+`scripts/clonar-repos.sh` clona este repo junto a los demás y `docker compose up -d --build`
+construye cada servicio desde su clon (gateway en http://localhost:8080, app en
+http://localhost:5500).
 
 Comprobar: `curl http://localhost:3012/health`
 
