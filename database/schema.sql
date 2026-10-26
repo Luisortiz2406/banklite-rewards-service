@@ -72,11 +72,31 @@ CREATE TABLE public.redemptions (
 
 
 --
+-- Name: rewards_closures; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.rewards_closures (
+    id_user uuid NOT NULL,
+    closed_at timestamp with time zone NOT NULL,
+    forfeited_points integer NOT NULL,
+    processed_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
 -- Name: points_entries PK_65c6da170aeec36e4870a88336e; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.points_entries
     ADD CONSTRAINT "PK_65c6da170aeec36e4870a88336e" PRIMARY KEY (id);
+
+
+--
+-- Name: rewards_closures PK_9f63bf9773b37a48e6dc274a325; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rewards_closures
+    ADD CONSTRAINT "PK_9f63bf9773b37a48e6dc274a325" PRIMARY KEY (id_user);
 
 
 --
