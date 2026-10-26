@@ -209,21 +209,23 @@ describeWithDb('RewardsService (PostgreSQL)', () => {
 
     it('deja el saldo en 0 con «Puntos perdidos por cancelación», sin borrar el historial', async () => {
       await givePoints(1_200);
-      await rewards.handleTransaction(payment(30_000));
-      expect(await balance()).toBe(1_230);
+      await rewards.handleTransaction(payment(30_000)); // 30 puntos + el reto «primera factura»
+      const before = await balance();
+      const entriesBefore = await entries.count();
+      expect(before).toBeGreaterThan(1_230);
 
       await close();
 
       expect(await balance()).toBe(0);
       const all = await entries.find({ order: { createdAt: 'ASC' } });
-      expect(all).toHaveLength(3); // los dos asientos de antes siguen ahí
+      expect(all).toHaveLength(entriesBefore + 1); // los asientos de antes siguen ahí
       expect(all.find((e) => e.kind === 'forfeit')).toMatchObject({
-        points: -1_230,
+        points: -before,
         title: 'Puntos perdidos por cancelación',
         sourceKey: `closure:${ANA}`,
       });
       const [closure] = await closures();
-      expect(closure).toMatchObject({ idUser: ANA, forfeitedPoints: 1_230 });
+      expect(closure).toMatchObject({ idUser: ANA, forfeitedPoints: before });
       expect(closure.closedAt.toISOString()).toBe(CERRADA_EN);
     });
 
