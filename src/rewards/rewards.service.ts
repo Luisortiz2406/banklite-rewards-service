@@ -22,6 +22,7 @@ import {
 } from './catalog';
 import { PointsEntry, PointsKind } from './entities/points-entry.entity';
 import { Redemption } from './entities/redemption.entity';
+import { RewardsClosure } from './entities/rewards-closure.entity';
 import { DeliveryError, RewardsClientsService } from './rewards-clients.service';
 
 /** Evento transaction.completed del ledger (uno por titular afectado). */
@@ -37,6 +38,12 @@ export interface TransactionEvent {
 
 // Un canje pendiente más viejo que esto se vuelve a intentar (con la misma clave).
 const STALE_PENDING_MS = 30_000;
+
+/** Evento account.closed de account-service: el cliente canceló su cuenta Banklite. */
+export interface AccountClosedEvent {
+  idUser: string;
+  cerradaEn?: string;
+}
 
 @Injectable()
 export class RewardsService {
@@ -116,6 +123,42 @@ export class RewardsService {
     if (description.startsWith('Suscripción') || (event.type === 'debit' && !isExternalTransfer)) {
       await this.awardBadge(event.idUser, 'first-purchase');
     }
+  }
+
+  // =====================================================
+  // CANCELACIÓN DE LA CUENTA (evento account.closed)
+  // =====================================================
+
+  /**
+   * El cliente canceló su cuenta: su saldo de puntos queda en 0 con un asiento
+   * "Puntos perdidos por cancelación" (el historial no se borra). Con el mismo
+   * candado por cliente que los canjes, así un canje o un abono a la vez no se
+   * cruzan con el cierre. Idempotente: rewards_closures tiene una fila por
+   * cliente y el asiento usa la sourceKey closure:<idUser>.
+   */
+  async handleAccountClosed(event: AccountClosedEvent) {
+    const closedAt = event.cerradaEn && !isNaN(Date.parse(event.cerradaEn)) ? new Date(event.cerradaEn) : new Date();
+    await this.dataSource.transaction(async (manager) => {
+      await this.lockUser(manager, event.idUser);
+      if (await manager.exists(RewardsClosure, { where: { idUser: event.idUser } })) {
+        this.logger.log(`account.closed repetido para idUser=${event.idUser}: los puntos ya estaban en 0.`);
+        return;
+      }
+      const balance = await this.balanceOf(event.idUser, manager);
+      const forfeited = Math.max(balance, 0);
+      await manager.insert(RewardsClosure, { idUser: event.idUser, closedAt, forfeitedPoints: forfeited });
+      if (forfeited > 0) {
+        await manager.insert(PointsEntry, {
+          idUser: event.idUser,
+          points: -forfeited,
+          kind: 'forfeit',
+          title: 'Puntos perdidos por cancelación',
+          detail: 'Cancelaste tu cuenta Banklite',
+          sourceKey: `closure:${event.idUser}`,
+        });
+      }
+      this.logger.log(`Cuenta cancelada idUser=${event.idUser}: ${forfeited} punto(s) perdido(s).`);
+    });
   }
 
   // =====================================================
@@ -236,7 +279,10 @@ export class RewardsService {
     try {
       return await this.dataSource.transaction(async (manager) => {
         // Candado por cliente: dos canjes a la vez no pueden gastar los mismos puntos.
-        await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [idUser]);
+        await this.lockUser(manager, idUser);
+        if (await this.isClosed(idUser, manager)) {
+          throw new BadRequestException('Tu cuenta Banklite fue cancelada: tus puntos ya no están disponibles.');
+        }
         const balance = await this.balanceOf(idUser, manager);
         if (balance < points) {
           throw new BadRequestException(
@@ -330,15 +376,26 @@ export class RewardsService {
     }
   }
 
-  /** Compensación: devuelve los puntos reservados y marca el canje como fallido. */
+  /**
+   * Compensación: devuelve los puntos reservados y marca el canje como fallido.
+   * Si el cliente ya canceló su cuenta, el canje queda fallido pero los puntos no
+   * se devuelven (su saldo quedó en 0 al cancelar).
+   */
   private async refund(redemption: Redemption, reason: string) {
     await this.dataSource.transaction(async (manager) => {
+      await this.lockUser(manager, redemption.idUser);
       const claimed = await manager.update(
         Redemption,
         { id: redemption.id, status: 'pending' },
         { status: 'failed', failureReason: reason.slice(0, 200) },
       );
       if (!claimed.affected) return; // ya se resolvió por otra vía
+      if (await this.isClosed(redemption.idUser, manager)) {
+        this.logger.warn(
+          `Devolución ignorada (${redemption.points} puntos, canje ${redemption.id}): idUser=${redemption.idUser} canceló su cuenta.`,
+        );
+        return;
+      }
       await manager.save(
         manager.create(PointsEntry, {
           idUser: redemption.idUser,
@@ -376,7 +433,11 @@ export class RewardsService {
     return this.entries.exist({ where: { idUser, sourceKey: `badge:${id}` } });
   }
 
-  /** Inserta un asiento; si su sourceKey ya existe (reentrega), no hace nada. */
+  /**
+   * Inserta un asiento; si su sourceKey ya existe (reentrega), no hace nada. Si
+   * el cliente canceló su cuenta, tampoco: los puntos tardíos (un pago, un reto o
+   * un reverso que llega después del cierre) se ignoran y quedan en el log.
+   */
   private async addEntry(
     idUser: string,
     points: number,
@@ -386,13 +447,29 @@ export class RewardsService {
     sourceKey: string,
   ) {
     if (!points) return;
-    await this.entries
-      .createQueryBuilder()
-      .insert()
-      .into(PointsEntry)
-      .values({ idUser, points, kind, title, detail, sourceKey })
-      .orIgnore()
-      .execute();
+    await this.dataSource.transaction(async (manager) => {
+      await this.lockUser(manager, idUser);
+      if (await this.isClosed(idUser, manager)) {
+        this.logger.warn(`Puntos ignorados (${points}, ${sourceKey}): idUser=${idUser} canceló su cuenta.`);
+        return;
+      }
+      await manager
+        .createQueryBuilder()
+        .insert()
+        .into(PointsEntry)
+        .values({ idUser, points, kind, title, detail, sourceKey })
+        .orIgnore()
+        .execute();
+    });
+  }
+
+  /** Candado por cliente (dura hasta el fin de la transacción). */
+  private lockUser(manager: EntityManager, idUser: string) {
+    return manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [idUser]);
+  }
+
+  private isClosed(idUser: string, manager: EntityManager) {
+    return manager.exists(RewardsClosure, { where: { idUser } });
   }
 
   private async balanceOf(idUser: string, manager?: EntityManager): Promise<number> {

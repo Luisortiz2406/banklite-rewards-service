@@ -5,6 +5,7 @@ import { createTestDatabase, describeWithDb, truncateAll } from '../testing/test
 import { POINT_BADGES } from './catalog';
 import { PointsEntry } from './entities/points-entry.entity';
 import { Redemption } from './entities/redemption.entity';
+import { RewardsClosure } from './entities/rewards-closure.entity';
 import { DeliveryError, RewardsClientsService } from './rewards-clients.service';
 import { RewardsService, TransactionEvent } from './rewards.service';
 
@@ -30,7 +31,7 @@ describeWithDb('RewardsService (PostgreSQL)', () => {
   };
 
   beforeAll(async () => {
-    ({ dataSource, drop } = await createTestDatabase('rewards', [PointsEntry, Redemption]));
+    ({ dataSource, drop } = await createTestDatabase('rewards', [PointsEntry, Redemption, RewardsClosure]));
     entries = dataSource.getRepository(PointsEntry);
     rewards = new RewardsService(
       dataSource,
@@ -197,6 +198,117 @@ describeWithDb('RewardsService (PostgreSQL)', () => {
       );
       expect(keys).toHaveLength(2);
       expect(new Set(keys).size).toBe(1);
+    });
+  });
+  describe('cancelación de la cuenta (account.closed)', () => {
+    const CERRADA_EN = '2026-10-26T15:20:00.000Z';
+    const close = () => rewards.handleAccountClosed({ idUser: ANA, cerradaEn: CERRADA_EN });
+    const redeem = (rewardId: string, idempotencyKey = randomUUID(), operatorCode?: string) =>
+      rewards.redeem(ANA, 'token', rewardId, idempotencyKey, operatorCode);
+    const closures = () => dataSource.getRepository(RewardsClosure).find();
+
+    it('deja el saldo en 0 con «Puntos perdidos por cancelación», sin borrar el historial', async () => {
+      await givePoints(1_200);
+      await rewards.handleTransaction(payment(30_000)); // 30 puntos + el reto «primera factura»
+      const before = await balance();
+      const entriesBefore = await entries.count();
+      expect(before).toBeGreaterThan(1_230);
+
+      await close();
+
+      expect(await balance()).toBe(0);
+      const all = await entries.find({ order: { createdAt: 'ASC' } });
+      expect(all).toHaveLength(entriesBefore + 1); // los asientos de antes siguen ahí
+      expect(all.find((e) => e.kind === 'forfeit')).toMatchObject({
+        points: -before,
+        title: 'Puntos perdidos por cancelación',
+        sourceKey: `closure:${ANA}`,
+      });
+      const [closure] = await closures();
+      expect(closure).toMatchObject({ idUser: ANA, forfeitedPoints: before });
+      expect(closure.closedAt.toISOString()).toBe(CERRADA_EN);
+    });
+
+    it('el evento repetido, o entregado varias veces a la vez, no descuenta dos veces', async () => {
+      await givePoints(800);
+      await close();
+      await close();
+      await Promise.all([close(), close(), close()]);
+
+      expect(await balance()).toBe(0);
+      expect(await entries.countBy({ kind: 'forfeit' })).toBe(1);
+      expect(await closures()).toHaveLength(1);
+    });
+
+    it('sin puntos: registra el cierre y no agrega asiento', async () => {
+      await close();
+      expect(await entries.count()).toBe(0);
+      expect(await closures()).toEqual([expect.objectContaining({ forfeitedPoints: 0 })]);
+    });
+
+    it('los puntos que llegan después del cierre (pago, reto o reverso) se ignoran', async () => {
+      const earlier = payment(40_000);
+      await rewards.handleTransaction(earlier);
+      await close();
+
+      await rewards.handleTransaction(payment(50_000));
+      await rewards.handleTransaction({
+        idUser: ANA,
+        direction: 'out',
+        transactionId: randomUUID(),
+        type: 'reversal',
+        amount: 40_000,
+        reversedTransactionId: earlier.transactionId,
+      });
+
+      expect(await balance()).toBe(0);
+      expect(await entries.countBy({ kind: 'earn' })).toBe(1); // solo el de antes del cierre
+      expect(await entries.countBy({ kind: 'reversal' })).toBe(0);
+    });
+
+    it('un pago y el cierre a la vez: el saldo siempre termina en 0', async () => {
+      await givePoints(300);
+      await Promise.all([rewards.handleTransaction(payment(60_000)), close()]);
+      expect(await balance()).toBe(0);
+    });
+
+    it('un canje pendiente que falla después del cierre no devuelve los puntos', async () => {
+      await givePoints(1_000);
+      clients.rewardTopup.mockRejectedValueOnce(new DeliveryError('Payment no responde.', false));
+      const key = randomUUID();
+      await expect(redeem('recharge10', key, 'rec-claro')).rejects.toBeInstanceOf(ServiceUnavailableException);
+      await close(); // los 1.000 puntos estaban reservados: no queda nada por perder
+
+      clients.rewardTopup.mockRejectedValueOnce(new DeliveryError('Operador rechazó la recarga.', true));
+      await expect(redeem('recharge10', key, 'rec-claro')).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(await dataSource.getRepository(Redemption).findOneByOrFail({ idempotencyKey: key })).toMatchObject({
+        status: 'failed',
+      });
+      expect(await entries.countBy({ kind: 'refund' })).toBe(0);
+      expect(await balance()).toBe(0);
+    });
+
+    it('después del cierre no se puede canjear', async () => {
+      await givePoints(1_000);
+      await close();
+      await expect(redeem('cash5')).rejects.toThrow('Tu cuenta Banklite fue cancelada');
+      expect(clients.creditCash).not.toHaveBeenCalled();
+    });
+
+    it('el cierre de un cliente no toca los puntos de otro', async () => {
+      const CARLOS = '22222222-2222-4222-8222-222222222222';
+      await givePoints(500);
+      await entries.save(
+        entries.create({ idUser: CARLOS, points: 700, kind: 'earn', title: 'Saldo', detail: '', sourceKey: 'x' }),
+      );
+      await close();
+      const carlos = await entries
+        .createQueryBuilder('e')
+        .select('COALESCE(SUM(e.points), 0)', 'total')
+        .where('e.id_user = :id', { id: CARLOS })
+        .getRawOne();
+      expect(Number(carlos.total)).toBe(700);
     });
   });
 });

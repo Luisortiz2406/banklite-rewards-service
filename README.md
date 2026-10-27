@@ -23,13 +23,18 @@ misma clave).
 - No se suman dos veces los puntos del mismo evento (`source_key` única).
 - No se canjea más de lo disponible; los puntos reservados no se pueden usar en otro canje.
 - Retos (p. ej. de ahorro) consultados a savings-service.
+- **Cancelación de la cuenta** (`account.closed`): el saldo de puntos queda en 0 con un
+  movimiento «Puntos perdidos por cancelación» (el historial no se borra). Una sola vez
+  por cliente aunque el evento llegue repetido. Desde ese momento no se suman puntos
+  (pagos, retos o reversos tardíos se ignoran y quedan en el log), no se devuelven los
+  canjes que fallen y no se puede canjear.
 
 **Comunicación con otros servicios**
 
 | | |
 |---|---|
 | Publica eventos | — |
-| Consume eventos | `transaction.completed` (ledger) |
+| Consume eventos | `transaction.completed` (ledger)<br>`account.closed` (account) → puntos en 0 (cola `rewards-service.account-closed`, con reintentos y DLQ) |
 | Llama a | ledger-service: `/ledger/internal/rewards`<br>payment-service: recargas con puntos<br>account-service: cuenta del cliente<br>kyc-service: nombre<br>savings-service: retos de ahorro |
 | Lo llaman | api-gateway (rutas `/rewards/*`) |
 | Integraciones externas | — |
@@ -52,6 +57,7 @@ rutas internas.
 |---|---|
 | `points_entries` | Movimientos de puntos (ganados, canjeados, insignias), con `source_key` única. |
 | `redemptions` | Canjes, su estado y la transacción del ledger. |
+| `rewards_closures` | Clientes que cancelaron su cuenta: fecha y puntos perdidos (una fila por cliente). |
 
 En `database/`:
 
@@ -139,14 +145,14 @@ todas se configuran como variables del servicio, nunca en el código.
 | `ACCOUNT_SERVICE_URL` | Sí | `http://localhost:3002` | URL interna de account-service. |
 | `KYC_SERVICE_URL` | Sí | `http://localhost:3003` | URL interna de kyc-service. |
 | `SAVINGS_SERVICE_URL` | Sí | `http://localhost:3013` | URL interna de savings-service. |
-| `RABBITMQ_QUEUE` | No | `rewards-service.transaction-completed` | Cola propia del servicio (con `<cola>.retry` y `<cola>.dlq`). |
+| `RABBITMQ_QUEUE` | No | `rewards-service.transaction-completed` | Cola de `transaction.completed` (con `<cola>.retry` y `<cola>.dlq`). `account.closed` usa siempre la cola `rewards-service.account-closed`. |
 | `EVENT_MAX_RETRIES` | No | `5` | Reintentos de un evento antes de mandarlo a la DLQ. |
 | `EVENT_RETRY_DELAY_MS` | No | `10000` | Espera entre reintentos de un evento. |
 | `HTTP_READ_RETRIES` | No | `1` | Reintentos de las lecturas (GET) a otros servicios; las escrituras no se reintentan. |
 
 ## Pruebas
 
-Pruebas de reglas de negocio (Jest): el mismo evento no suma puntos dos veces (también en paralelo), qué movimientos suman, multiplicador por nivel, reversos, y canjes con reserva, devolución y reintento.
+Pruebas de reglas de negocio (Jest): el mismo evento no suma puntos dos veces (también en paralelo), qué movimientos suman, multiplicador por nivel, reversos, canjes con reserva, devolución y reintento, y la cancelación de la cuenta (saldo en 0 una sola vez, evento repetido o simultáneo, puntos tardíos ignorados, canje fallido después del cierre sin devolución).
 
 Corren contra un PostgreSQL real, porque esas reglas dependen de transacciones,
 bloqueos e índices únicos. Cada corrida crea una base temporal y la borra al terminar:
@@ -157,6 +163,11 @@ TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres npm test
 
 Sin `TEST_DATABASE_URL` se omiten en local; en la CI son obligatorias (el workflow
 levanta un Postgres de servicio).
+
+`database/schema.sql` y `database/backup.sql` se verifican en CI (`npm run verificar:esquema`,
+después de `npm run build`): se restauran en Postgres y TypeORM no debe encontrar
+diferencias con las entidades (`src/entities.ts`). Un caso de control alterado a propósito
+debe fallar.
 
 ## Despliegue
 
@@ -181,6 +192,6 @@ despliega desde su propio repositorio.
 | [banklite-api-gateway](https://github.com/Luisortiz2406/banklite-api-gateway) | **Lo llama:** punto de entrada público, le enruta las rutas de este servicio |
 | [banklite-ledger-service](https://github.com/Luisortiz2406/banklite-ledger-service) | **Llama a:** canjes (`/ledger/internal/rewards`)<br>**Recibe:** `transaction.completed` |
 | [banklite-payment-service](https://github.com/Luisortiz2406/banklite-payment-service) | **Llama a:** recargas pagadas con puntos |
-| [banklite-account-service](https://github.com/Luisortiz2406/banklite-account-service) | **Llama a:** cuenta del cliente |
+| [banklite-account-service](https://github.com/Luisortiz2406/banklite-account-service) | **Llama a:** cuenta del cliente<br>**Recibe:** `account.closed` (puntos en 0) |
 | [banklite-kyc-service](https://github.com/Luisortiz2406/banklite-kyc-service) | **Llama a:** nombre del cliente |
 | [banklite-savings-service](https://github.com/Luisortiz2406/banklite-savings-service) | **Llama a:** progreso de los retos de ahorro |

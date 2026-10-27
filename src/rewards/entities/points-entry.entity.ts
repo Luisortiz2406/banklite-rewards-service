@@ -7,10 +7,11 @@ import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from 
  * - redeem: canje, en negativo (redeem:<redemptionId>)
  * - refund: devolución de un canje que falló (refund:<redemptionId>)
  * - reversal: el movimiento que dio puntos se reversó (reversal:<transactionId>)
+ * - forfeit: el cliente canceló su cuenta y perdió el saldo, en negativo (closure:<idUser>)
  * (cliente, sourceKey) es único: un evento reentregado o un doble clic nunca suma
  * dos veces, y cada cliente cumple sus propios retos.
  */
-export type PointsKind = 'earn' | 'badge' | 'redeem' | 'refund' | 'reversal';
+export type PointsKind = 'earn' | 'badge' | 'redeem' | 'refund' | 'reversal' | 'forfeit';
 
 @Entity('points_entries')
 @Index('idx_points_entries_user_created', ['idUser', 'createdAt'])

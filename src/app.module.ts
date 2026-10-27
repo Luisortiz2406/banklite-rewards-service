@@ -2,9 +2,8 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { validateEnv } from './config/env.validation';
+import { ENTITIES } from './entities';
 import { HealthController } from './health.controller';
-import { PointsEntry } from './rewards/entities/points-entry.entity';
-import { Redemption } from './rewards/entities/redemption.entity';
 import { RewardsModule } from './rewards/rewards.module';
 
 @Module({
@@ -27,7 +26,7 @@ import { RewardsModule } from './rewards/rewards.module';
       useFactory: (config: ConfigService) => ({
         type: 'postgres' as const,
         url: config.get<string>('DATABASE_URL'),
-        entities: [PointsEntry, Redemption],
+        entities: ENTITIES,
         synchronize: true,
         logging: false,
       }),
