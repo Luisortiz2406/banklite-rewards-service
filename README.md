@@ -169,6 +169,10 @@ después de `npm run build`): se restauran en Postgres y TypeORM no debe encontr
 diferencias con las entidades (`src/entities.ts`). Un caso de control alterado a propósito
 debe fallar.
 
+Además de la lógica de puntos (acumulación por nivel, canjes, puntos tardíos, cierre de cuenta), se prueban los dos consumidores de eventos (`transaction.completed` y `account.closed`: mensajes inválidos a la DLQ, fallos a reintento), la entrega de canjes (`rewards-clients.service.spec.ts`: un 4xx devuelve los puntos, un fallo incierto reintenta con la misma clave), los controladores, los guards, `/health` y la validación de configuración.
+
+**Cobertura:** el pipeline la muestra en el resumen de cada corrida y exige un mínimo de 70 % de líneas y 50 % de ramas (`umbral-lineas` y `umbral-ramas` en `deploy.yml`). Hoy está en 89,0 % de líneas y 77,6 % de ramas.
+
 ## Despliegue
 
 Lo despliega **GitHub Actions** (`.github/workflows/deploy.yml`, que usa el workflow

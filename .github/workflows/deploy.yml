@@ -26,6 +26,8 @@ jobs:
       servicio: rewards-service
       # Las pruebas con base corren contra un Postgres real (TEST_DATABASE_URL).
       postgres: true
+      umbral-lineas: 70
+      umbral-ramas: 50
       # Prueba extra: esquema SQL igual a las entidades.
       prueba-extra: npm run verificar:esquema
     secrets: inherit
