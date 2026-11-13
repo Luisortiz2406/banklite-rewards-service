@@ -5,9 +5,11 @@ import { validateEnv } from './config/env.validation';
 import { ENTITIES } from './entities';
 import { HealthController } from './health.controller';
 import { RewardsModule } from './rewards/rewards.module';
+import { MetricsModule } from './metrics/metrics.module';
 
 @Module({
   imports: [
+    MetricsModule,
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
